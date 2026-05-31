@@ -1,0 +1,107 @@
+# =============================================================================
+# MedStore — DEVELOPMENT compose
+# Hot-reload backend, dev Next.js server, Postgres + Adminer GUI.
+#
+#   docker compose up --build
+#
+#   Frontend  -> http://localhost:3000
+#   Backend   -> http://localhost:8000  (docs at /docs)
+#   Adminer   -> http://localhost:8080  (server: postgres, user/db from .env)
+# =============================================================================
+
+name: medstore-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: medstore-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-medstore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medstore}
+      POSTGRES_DB: ${POSTGRES_DB:-medstore}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-medstore} -d ${POSTGRES_DB:-medstore}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: medstore-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-medstore}:${POSTGRES_PASSWORD:-medstore}@postgres:5432/${POSTGRES_DB:-medstore}
+      JWT_SECRET: ${JWT_SECRET:-dev-insecure-change-me}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ENVIRONMENT: development
+      DEBUG: "true"
+      RUN_MIGRATIONS: "1"
+      FIRST_ADMIN_EMAIL: ${FIRST_ADMIN_EMAIL:-admin@medstore.test}
+      FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:-admin123}
+      FIRST_ADMIN_NAME: ${FIRST_ADMIN_NAME:-MedStore Admin}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      LOG_JSON: "false"
+      SENTRY_DSN: ${SENTRY_DSN_BACKEND:-}
+    ports:
+      - "8000:8000"
+    # Hot reload: mount source and run uvicorn --reload.
+    # The named volume on /app/.venv keeps the image's installed deps from being
+    # shadowed by the host mount (if you create a local .venv).
+    volumes:
+      - ./backend:/app
+      - backend_venv:/app/.venv
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: deps          # use the deps stage; we run `next dev` in dev
+    container_name: medstore-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_USE_MOCK_API: "0"
+      NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN_FRONTEND:-}
+      WATCHPACK_POLLING: "true"   # reliable file watching inside containers
+    ports:
+      - "3000:3000"
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: sh -c "npm install && npm run dev"
+
+  adminer:
+    image: adminer:4-standalone
+    container_name: medstore-adminer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:
+  backend_venv:
+  frontend_node_modules:

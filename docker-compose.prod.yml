@@ -1,0 +1,162 @@
+# =============================================================================
+# MedStore — PRODUCTION compose
+#
+# - No source mounts, no hot reload (images are immutable artifacts)
+# - Backend: gunicorn + 4 uvicorn workers
+# - Frontend: Next.js standalone production server
+# - nginx reverse proxy (80/443) with certbot for Let's Encrypt
+# - Restart policies + resource limits
+#
+# Pull pre-built images from GHCR (set IMAGE_TAG), or build locally:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# First-time TLS issuance: see DEPLOYMENT.md > "Obtain certificates".
+# =============================================================================
+
+name: medstore-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+        reservations:
+          memory: 256m
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/your-org/medstore-backend}:${IMAGE_TAG:-latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      ENVIRONMENT: production
+      DEBUG: "false"
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-1}
+      WEB_CONCURRENCY: "4"
+      FIRST_ADMIN_EMAIL: ${FIRST_ADMIN_EMAIL}
+      FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD}
+      FIRST_ADMIN_NAME: ${FIRST_ADMIN_NAME:-MedStore Admin}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_JSON: "true"
+      SENTRY_DSN: ${SENTRY_DSN_BACKEND:-}
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1g
+        reservations:
+          memory: 512m
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/your-org/medstore-frontend}:${IMAGE_TAG:-latest}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* must be baked at build time.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_USE_MOCK_API: "0"
+        NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN_FRONTEND:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_USE_MOCK_API: "0"
+      NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN_FRONTEND:-}
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+        reservations:
+          memory: 256m
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    # Reload nginx every 6h so renewed certs are picked up without downtime.
+    command: >
+      sh -c "while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    # Attempt renewal twice a day; certbot only acts when near expiry.
+    entrypoint: >
+      sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
+    logging: *default-logging
+
+volumes:
+  postgres_data:

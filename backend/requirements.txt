@@ -1,0 +1,42 @@
+# ---- Web framework ----
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+gunicorn==23.0.0
+
+# ---- Auth ----
+fastapi-users[sqlalchemy]==13.0.0
+pyjwt==2.9.0
+passlib[bcrypt]==1.7.4
+
+# ---- Database / ORM ----
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+greenlet==3.1.1
+
+# ---- Settings / schemas ----
+pydantic==2.10.3
+pydantic-settings==2.6.1
+email-validator==2.1.2
+
+# ---- PDF generation ----
+weasyprint==63.0
+jinja2==3.1.4
+
+# ---- Misc ----
+python-multipart==0.0.18
+psycopg2-binary==2.9.10        # sync driver for Alembic / health tooling
+
+# ---- Observability ----
+structlog==24.4.0
+sentry-sdk[fastapi]==2.19.2
+
+# ---- Dev / test (kept here for a single-file install; split out if desired) ----
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1
+aiosqlite==0.20.0
+ruff==0.8.3
+black==24.10.0
+mypy==1.13.0
+pre-commit==4.0.1
