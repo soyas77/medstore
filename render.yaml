@@ -1,0 +1,49 @@
+databases:
+  - name: medstore-db
+    plan: free
+    databaseName: medstore
+    user: medstore
+
+services:
+  - type: web
+    name: medstore-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: medstore-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: LOG_JSON
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: RUN_MIGRATIONS
+        value: "1"
+      - key: FIRST_ADMIN_EMAIL
+        value: admin@example.com
+      - key: FIRST_ADMIN_PASSWORD
+        sync: false
+      - key: FIRST_ADMIN_NAME
+        value: MedStore Admin
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CORS_ORIGIN_REGEX
+        value: https://.*\.vercel\.app
