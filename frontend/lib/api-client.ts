@@ -6,20 +6,6 @@ import axios, {
   InternalAxiosRequestConfig,
 } from "axios";
 
-/**
- * api-client.ts
- * Central axios instance.
- *
- * - In mock mode (NEXT_PUBLIC_USE_MOCK_API=1) requests go to the in-app
- *   Next.js route handlers under `/api/*` (same origin).
- * - Otherwise requests go to NEXT_PUBLIC_API_URL (the real FastAPI backend).
- *
- * The Bearer token is attached from a non-httpOnly mirror cookie/localStorage
- * for client-side requests. The canonical auth cookie is httpOnly and is used
- * by middleware + Next route handlers; this client mirror is only for the
- * Authorization header convenience when calling a real backend directly.
- */
-
 const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK_API === "1";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -37,11 +23,15 @@ export function setStoredToken(token: string | null): void {
 }
 
 export const apiClient: AxiosInstance = axios.create({
-  // Mock mode hits same-origin Next route handlers; real mode hits the backend.
-  baseURL: USE_MOCK ? "/api" : `${API_URL.replace(/\/$/, "")}/api`,
+  // Mock mode hits same-origin Next route handlers under `/api`.
+  // Real mode hits the FastAPI backend, which serves under `/api/v1`.
+  baseURL: USE_MOCK ? "/api" : `${API_URL.replace(/\/$/, "")}/api/v1`,
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
+
+/** True when talking to the real FastAPI backend (not the in-app mock). */
+export const IS_REAL_BACKEND = !USE_MOCK;
 
 // Request interceptor: attach Bearer token.
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
@@ -58,12 +48,9 @@ apiClient.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
       setStoredToken(null);
-      // Best-effort server-side cookie clear, then redirect.
-      fetch("/api/auth/logout", { method: "POST" }).finally(() => {
-        if (!window.location.pathname.startsWith("/login")) {
-          window.location.href = "/login";
-        }
-      });
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(error);
   }

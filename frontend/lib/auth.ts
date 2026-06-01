@@ -1,21 +1,24 @@
 "use client";
 
-import { apiClient, setStoredToken } from "@/lib/api-client";
+import { apiClient, IS_REAL_BACKEND, setStoredToken } from "@/lib/api-client";
 import type { LoginRequest, LoginResponse, User } from "@/types/api";
 
-/**
- * auth.ts
- * Login/logout helpers.
- *
- * Flow:
- *  1. POST /api/auth/login authenticates and returns { access_token, user }.
- *     The Next route handler ALSO sets an httpOnly cookie used by middleware.
- *  2. We mirror the token to localStorage so the axios client can attach a
- *     Bearer header for client-side calls (and for a real backend).
- *  3. logout() clears the httpOnly cookie (route handler) + localStorage.
- */
-
 export async function login(credentials: LoginRequest): Promise<LoginResponse> {
+  if (IS_REAL_BACKEND) {
+    const form = new URLSearchParams();
+    form.set("username", credentials.email);
+    form.set("password", credentials.password);
+    const { data: token } = await apiClient.post<{
+      access_token: string;
+      token_type: string;
+    }>("/auth/login", form, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    setStoredToken(token.access_token);
+    const user = await fetchCurrentUser();
+    return { access_token: token.access_token, token_type: "bearer", user };
+  }
+
   const { data } = await apiClient.post<LoginResponse>(
     "/auth/login",
     credentials
@@ -26,7 +29,7 @@ export async function login(credentials: LoginRequest): Promise<LoginResponse> {
 
 export async function logout(): Promise<void> {
   try {
-    await apiClient.post("/auth/logout");
+    if (!IS_REAL_BACKEND) await apiClient.post("/auth/logout");
   } finally {
     setStoredToken(null);
   }
