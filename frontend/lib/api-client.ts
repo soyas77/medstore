@@ -6,20 +6,47 @@ import axios, {
   InternalAxiosRequestConfig,
 } from "axios";
 
+/**
+ * api-client.ts
+ * Central axios instance.
+ *
+ * - Mock mode (NEXT_PUBLIC_USE_MOCK_API=1): same-origin Next route handlers /api.
+ * - Real mode: NEXT_PUBLIC_API_URL (FastAPI backend, served under /api/v1).
+ */
+
 const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK_API === "1";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export const TOKEN_STORAGE_KEY = "medstore_token";
+export const ROLE_COOKIE = "medstore_role";
 
 export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
+/** Set or clear a browser cookie (used so middleware can see auth state). */
+export function setCookie(name: string, value: string | null): void {
+  if (typeof document === "undefined") return;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  if (value) {
+    document.cookie = `${name}=${value}; Path=/; Max-Age=604800; SameSite=Lax${secure}`;
+  } else {
+    document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  }
+}
+
 export function setStoredToken(token: string | null): void {
   if (typeof window === "undefined") return;
-  if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-  else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  if (token) {
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    // Mirror to a cookie so middleware.ts can detect the session.
+    setCookie(TOKEN_STORAGE_KEY, token);
+  } else {
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    setCookie(TOKEN_STORAGE_KEY, null);
+    setCookie(ROLE_COOKIE, null);
+  }
 }
 
 export const apiClient: AxiosInstance = axios.create({

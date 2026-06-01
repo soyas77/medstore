@@ -1,6 +1,12 @@
 "use client";
 
-import { apiClient, IS_REAL_BACKEND, setStoredToken } from "@/lib/api-client";
+import {
+  apiClient,
+  IS_REAL_BACKEND,
+  ROLE_COOKIE,
+  setCookie,
+  setStoredToken,
+} from "@/lib/api-client";
 import type { LoginRequest, LoginResponse, User } from "@/types/api";
 
 export async function login(credentials: LoginRequest): Promise<LoginResponse> {
@@ -16,6 +22,7 @@ export async function login(credentials: LoginRequest): Promise<LoginResponse> {
     });
     setStoredToken(token.access_token);
     const user = await fetchCurrentUser();
+    setCookie(ROLE_COOKIE, user.role);
     return { access_token: token.access_token, token_type: "bearer", user };
   }
 
@@ -29,7 +36,9 @@ export async function login(credentials: LoginRequest): Promise<LoginResponse> {
 
 export async function logout(): Promise<void> {
   try {
-    if (!IS_REAL_BACKEND) await apiClient.post("/auth/logout");
+    await apiClient.post("/auth/logout");
+  } catch {
+    /* ignore */
   } finally {
     setStoredToken(null);
   }
