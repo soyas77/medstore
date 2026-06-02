@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+)
 
 
 class MedicineBase(BaseModel):
@@ -19,18 +25,32 @@ class MedicineBase(BaseModel):
 class MedicineCreate(MedicineBase):
     """Create payload. ``id`` is optional; auto-generated if omitted."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str | None = Field(default=None, max_length=20)
-    stock_strips: int = Field(default=0, ge=0)
+    stock_strips: int = Field(
+        default=0,
+        ge=0,
+        validation_alias=AliasChoices("stock", "stock_strips"),
+    )
 
 
 class MedicineUpdate(BaseModel):
+    """Update payload. Accepts ``stock`` or ``stock_strips``."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str | None = Field(default=None, max_length=255)
     manufacturer: str | None = Field(default=None, max_length=255)
     price_per_strip: Decimal | None = Field(
         default=None, ge=0, max_digits=10, decimal_places=2
     )
     strips_per_box: int | None = Field(default=None, ge=1)
-    stock_strips: int | None = Field(default=None, ge=0)
+    stock_strips: int | None = Field(
+        default=None,
+        ge=0,
+        validation_alias=AliasChoices("stock", "stock_strips"),
+    )
     low_stock_threshold: int | None = Field(default=None, ge=0)
 
 
@@ -43,6 +63,12 @@ class MedicineRead(MedicineBase):
     is_low_stock: bool
     created_at: datetime
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def stock(self) -> int:
+        """Alias for stock_strips (frontend reads `stock`)."""
+        return self.stock_strips
 
 
 class PaginatedMedicines(BaseModel):

@@ -4,12 +4,25 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 
 
 class SaleItemInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     medicine_id: str = Field(..., max_length=20)
-    quantity_strips: int = Field(..., gt=0, description="Strips to sell")
+    quantity_strips: int = Field(
+        ...,
+        gt=0,
+        description="Strips to sell",
+        validation_alias=AliasChoices("quantity", "quantity_strips"),
+    )
 
 
 class SaleCreate(BaseModel):
@@ -26,8 +39,15 @@ class SaleCreate(BaseModel):
 
 
 class RestockItemInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     medicine_id: str = Field(..., max_length=20)
-    quantity_strips: int = Field(..., gt=0, description="Strips received")
+    quantity_strips: int = Field(
+        ...,
+        gt=0,
+        description="Strips received",
+        validation_alias=AliasChoices("quantity", "quantity_strips"),
+    )
     unit_cost: Decimal = Field(
         ..., ge=0, max_digits=10, decimal_places=2, description="Cost per strip"
     )
